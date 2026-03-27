@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,33 +6,63 @@ datasource db {
   provider = "postgresql"
 }
 
-model Tenant {
-  id       String    @id @default(uuid())
-  name     String
-  users    User[]
-  projects Project[]
-}
-
 model User {
-  id       String @id @default(uuid())
-  email    String @unique
-  tenantId String
-  tenant   Tenant @relation(fields: [tenantId], references: [id])
+  id          String       @id @default(uuid())
+  name        String
+  memberships Membership[]
+  createdAt   DateTime     @default(now())
 }
 
-model Project {
-  id       String @id @default(uuid())
-  name     String
-  tenantId String
-  tenant   Tenant @relation(fields: [tenantId], references: [id])
-  tasks    Task[]
+model Workspace {
+  id        String       @id @default(uuid())
+  name      String
+  boards    Board[]
+  members   Membership[]
+  createdAt DateTime     @default(now())
 }
 
-model Task {
-  id        String   @id @default(uuid())
-  title     String
-  completed Boolean  @default(false)
-  projectId String
-  project   Project  @relation(fields: [projectId], references: [id])
+model Membership {
+  id          String @id @default(uuid())
+  userId      String
+  workspaceId String
+  role        String // "admin" | "member"
+
+  user      User      @relation(fields: [userId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([userId, workspaceId]) // prevents duplicate memberships
+}
+
+model Board {
+  id          String @id @default(uuid())
+  name        String
+  workspaceId String
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  lists     List[]
+
+  createdAt DateTime @default(now())
+}
+
+model List {
+  id      String @id @default(uuid())
+  name    String
+  order   Int
+  boardId String
+
+  board Board  @relation(fields: [boardId], references: [id])
+  cards Card[]
+}
+
+model Card {
+  id      String  @id @default(uuid())
+  title   String
+  content String?
+  order   Int
+  listId  String
+
+  list List @relation(fields: [listId], references: [id])
+
+  createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

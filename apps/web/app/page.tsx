@@ -1,333 +1,216 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import styles from "./page.module.css";
+import { useEffect, useState } from "react";
+import axios from "axios";
 
-type Tenant = {
-  id: string;
-  name: string;
-};
-
-type Project = {
-  id: string;
-  name: string;
-  tenantId: string;
-  _count: {
-    tasks: number;
-  };
-};
-
-type Task = {
-  id: string;
-  title: string;
-  completed: boolean;
-  updatedAt: string;
-};
-
-const apiBase = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
-
-async function apiRequest<T>(
-  path: string,
-  init?: RequestInit,
-  tenantId?: string,
-) {
-  const response = await fetch(`${apiBase}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(tenantId ? { "x-tenant-id": tenantId } : {}),
-      ...(init?.headers ?? {}),
-    },
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || "Request failed");
-  }
-
-  return response.json() as Promise<T>;
-}
+const api = axios.create({
+  baseURL: "http://localhost:8000",
+});
 
 export default function Home() {
-  const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [tenantId, setTenantId] = useState("");
-  const [projectId, setProjectId] = useState("");
-  const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [status, setStatus] = useState("Bootstrapping demo workspace...");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [workspaces, setWorkspaces] = useState([]);
 
-  const activeProject = useMemo(
-    () => projects.find((project) => project.id === projectId),
-    [projectId, projects],
-  );
+  const [boards, setBoards] = useState({});
+  const [lists, setLists] = useState({});
+  const [cards, setCards] = useState({});
+
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [boardName, setBoardName] = useState({});
+  const [listName, setListName] = useState({});
+  const [cardTitle, setCardTitle] = useState({});
+
+  // -------- FETCH --------
+
+  const fetchWorkspaces = async () => {
+    const res = await api.get("/workspaces");
+    setWorkspaces(res.data);
+  };
+
+  const fetchBoards = async (workspaceId: string) => {
+    const res = await api.get("/boards", {
+      headers: { "x-workspace-id": workspaceId },
+    });
+    setBoards((prev) => ({ ...prev, [workspaceId]: res.data }));
+  };
+
+  const fetchLists = async (boardId: string) => {
+    const res = await api.get("/lists", { params: { boardId } });
+    setLists((prev) => ({ ...prev, [boardId]: res.data }));
+  };
+
+  const fetchCards = async (listId: string) => {
+    const res = await api.get("/cards", { params: { listId } });
+    setCards((prev) => ({ ...prev, [listId]: res.data }));
+  };
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        setBusy(true);
-        await apiRequest("/demo/bootstrap", { method: "POST" });
-        const tenantList = await apiRequest<Tenant[]>("/tenants");
-        setTenants(tenantList);
-        if (tenantList[0]) {
-          setTenantId(tenantList[0].id);
-        }
-        setStatus(
-          "Demo data ready. Switch workspace to confirm tenant isolation.",
-        );
-      } catch (loadError) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Failed to load demo",
-        );
-      } finally {
-        setBusy(false);
-      }
-    };
-
-    void load();
+    fetchWorkspaces();
   }, []);
 
-  useEffect(() => {
-    const loadProjects = async () => {
-      if (!tenantId) {
-        setProjects([]);
-        setProjectId("");
-        return;
-      }
-
-      try {
-        const projectList = await apiRequest<Project[]>(
-          "/projects",
-          undefined,
-          tenantId,
-        );
-        setProjects(projectList);
-        setProjectId((current) => {
-          if (projectList.some((project) => project.id === current)) {
-            return current;
-          }
-
-          return projectList[0]?.id ?? "";
-        });
-      } catch (projectError) {
-        setError(
-          projectError instanceof Error
-            ? projectError.message
-            : "Failed to load projects",
-        );
-      }
-    };
-
-    void loadProjects();
-  }, [tenantId]);
-
-  useEffect(() => {
-    const loadTasks = async () => {
-      if (!tenantId || !projectId) {
-        setTasks([]);
-        return;
-      }
-
-      try {
-        const taskList = await apiRequest<Task[]>(
-          `/tasks/project/${projectId}`,
-          undefined,
-          tenantId,
-        );
-        setTasks(taskList);
-      } catch (taskError) {
-        setError(
-          taskError instanceof Error
-            ? taskError.message
-            : "Failed to load tasks",
-        );
-      }
-    };
-
-    void loadTasks();
-  }, [projectId, tenantId]);
-
-  const handleToggleTask = async (taskId: string) => {
-    if (!tenantId) {
-      return;
-    }
-
-    try {
-      const updatedTask = await apiRequest<Task>(
-        `/tasks/${taskId}/toggle`,
-        { method: "PATCH" },
-        tenantId,
-      );
-      setTasks((current) =>
-        current.map((task) =>
-          task.id === updatedTask.id ? updatedTask : task,
-        ),
-      );
-    } catch (toggleError) {
-      setError(
-        toggleError instanceof Error
-          ? toggleError.message
-          : "Failed to update task",
-      );
-    }
-  };
-
-  const handleCreateTask = async () => {
-    if (!tenantId || !projectId || !newTaskTitle.trim()) {
-      return;
-    }
-
-    try {
-      const createdTask = await apiRequest<Task>(
-        "/tasks",
-        {
-          method: "POST",
-          body: JSON.stringify({ title: newTaskTitle, projectId }),
-        },
-        tenantId,
-      );
-
-      setTasks((current) => [createdTask, ...current]);
-      setProjects((current) =>
-        current.map((project) =>
-          project.id === projectId
-            ? { ...project, _count: { tasks: project._count.tasks + 1 } }
-            : project,
-        ),
-      );
-      setNewTaskTitle("");
-    } catch (createError) {
-      setError(
-        createError instanceof Error
-          ? createError.message
-          : "Failed to create task",
-      );
-    }
-  };
+  // -------- UI --------
 
   return (
-    <div className={styles.page}>
-      <main className={styles.shell}>
-        <section className={styles.hero}>
-          <p className={styles.eyebrow}>Simple real-world feature</p>
-          <h1 className={styles.title}>Tenant-isolated project task tracker</h1>
-          <p className={styles.subtitle}>
-            Bootstrap demo workspaces, switch tenants, inspect projects, add
-            tasks, and toggle completion without leaking data across tenants.
-          </p>
-        </section>
+    <div className="p-8 bg-gray-100 min-h-screen">
+      <h1 className="text-2xl font-bold mb-6">Workspace App</h1>
 
-        <section className={styles.panelRow}>
-          <div className={styles.panel}>
-            <label className={styles.label} htmlFor="tenant">
-              Workspace
-            </label>
-            <select
-              id="tenant"
-              className={styles.select}
-              value={tenantId}
-              onChange={(event) => {
-                setTenantId(event.target.value);
-                setError("");
-              }}
-            >
-              {tenants.map((tenant) => (
-                <option key={tenant.id} value={tenant.id}>
-                  {tenant.name}
-                </option>
-              ))}
-            </select>
-            <p className={styles.helper}>
-              Every request is scoped by the selected tenant header.
-            </p>
-          </div>
+      {/* Create Workspace */}
+      <div className="mb-6">
+        <input
+          className="border p-2 mr-2"
+          placeholder="New workspace"
+          value={workspaceName}
+          onChange={(e) => setWorkspaceName(e.target.value)}
+        />
+        <button
+          className="bg-blue-500 text-white px-3 py-2 rounded"
+          onClick={async () => {
+            await api.post("/workspaces", { name: workspaceName });
+            setWorkspaceName("");
+            fetchWorkspaces();
+          }}
+        >
+          Add Workspace
+        </button>
+      </div>
 
-          <div className={styles.panel}>
-            <label className={styles.label} htmlFor="project">
-              Project
-            </label>
-            <select
-              id="project"
-              className={styles.select}
-              value={projectId}
-              onChange={(event) => setProjectId(event.target.value)}
-              disabled={!projects.length}
-            >
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name} ({project._count.tasks})
-                </option>
-              ))}
-            </select>
-            <p className={styles.helper}>{status}</p>
-          </div>
-        </section>
+      {/* Workspaces */}
+      {workspaces.map((ws: any) => (
+        <div key={ws.id} className="mb-6 p-4 bg-white rounded shadow">
+          <h2 className="font-bold text-lg">{ws.name}</h2>
 
-        <section className={styles.board}>
-          <div className={styles.boardHeader}>
-            <div>
-              <p className={styles.sectionLabel}>Current project</p>
-              <h2 className={styles.sectionTitle}>
-                {activeProject?.name ?? "No project selected"}
-              </h2>
-            </div>
-            <div className={styles.statCard}>
-              <span className={styles.statNumber}>{tasks.length}</span>
-              <span className={styles.statLabel}>tasks</span>
-            </div>
-          </div>
+          <button
+            className="text-blue-500 text-sm mb-2"
+            onClick={() => fetchBoards(ws.id)}
+          >
+            Load Boards
+          </button>
 
-          <div className={styles.composer}>
+          {/* Create Board */}
+          <div className="mb-2">
             <input
-              className={styles.input}
-              value={newTaskTitle}
-              onChange={(event) => setNewTaskTitle(event.target.value)}
-              placeholder="Add a task for this project"
+              className="border p-1 mr-2"
+              placeholder="New board"
+              value={boardName[ws.id] || ""}
+              onChange={(e) =>
+                setBoardName({ ...boardName, [ws.id]: e.target.value })
+              }
             />
             <button
-              className={styles.primaryButton}
-              onClick={handleCreateTask}
-              disabled={busy}
+              className="bg-green-500 text-white px-2 py-1 rounded"
+              onClick={async () => {
+                await api.post(
+                  "/boards",
+                  { name: boardName[ws.id] },
+                  { headers: { "x-workspace-id": ws.id } },
+                );
+                fetchBoards(ws.id);
+                setBoardName({ ...boardName, [ws.id]: "" });
+              }}
             >
-              Add task
+              Add Board
             </button>
           </div>
 
-          {error ? <p className={styles.error}>{error}</p> : null}
+          {/* Boards */}
+          {(boards[ws.id] || []).map((board: any) => (
+            <div key={board.id} className="ml-4 mb-4 p-3 bg-gray-50 rounded">
+              <h3 className="font-semibold">{board.name}</h3>
 
-          <div className={styles.taskList}>
-            {tasks.map((task) => (
               <button
-                key={task.id}
-                className={styles.taskCard}
-                onClick={() => handleToggleTask(task.id)}
+                className="text-green-600 text-sm"
+                onClick={() => fetchLists(board.id)}
               >
-                <span
-                  className={
-                    task.completed ? styles.taskCheckDone : styles.taskCheckOpen
-                  }
-                >
-                  {task.completed ? "Done" : "Open"}
-                </span>
-                <span
-                  className={
-                    task.completed ? styles.taskTitleDone : styles.taskTitle
-                  }
-                >
-                  {task.title}
-                </span>
+                Load Lists
               </button>
-            ))}
-            {!tasks.length ? (
-              <p className={styles.empty}>No tasks yet for this project.</p>
-            ) : null}
-          </div>
-        </section>
-      </main>
+
+              {/* Create List */}
+              <div className="mb-2">
+                <input
+                  className="border p-1 mr-2"
+                  placeholder="New list"
+                  value={listName[board.id] || ""}
+                  onChange={(e) =>
+                    setListName({
+                      ...listName,
+                      [board.id]: e.target.value,
+                    })
+                  }
+                />
+                <button
+                  className="bg-purple-500 text-white px-2 py-1 rounded"
+                  onClick={async () => {
+                    await api.post("/lists", {
+                      name: listName[board.id],
+                      boardId: board.id,
+                      order: 0,
+                    });
+                    fetchLists(board.id);
+                    setListName({ ...listName, [board.id]: "" });
+                  }}
+                >
+                  Add List
+                </button>
+              </div>
+
+              {/* Lists */}
+              {(lists[board.id] || []).map((list: any) => (
+                <div
+                  key={list.id}
+                  className="ml-4 mb-3 p-2 bg-white rounded border"
+                >
+                  <h4>{list.name}</h4>
+
+                  <button
+                    className="text-purple-600 text-xs"
+                    onClick={() => fetchCards(list.id)}
+                  >
+                    Load Cards
+                  </button>
+
+                  {/* Create Card */}
+                  <div className="mb-2">
+                    <input
+                      className="border p-1 mr-2"
+                      placeholder="New card"
+                      value={cardTitle[list.id] || ""}
+                      onChange={(e) =>
+                        setCardTitle({
+                          ...cardTitle,
+                          [list.id]: e.target.value,
+                        })
+                      }
+                    />
+                    <button
+                      className="bg-orange-500 text-white px-2 py-1 rounded"
+                      onClick={async () => {
+                        await api.post("/cards", {
+                          title: cardTitle[list.id],
+                          listId: list.id,
+                          order: 0,
+                        });
+                        fetchCards(list.id);
+                        setCardTitle({
+                          ...cardTitle,
+                          [list.id]: "",
+                        });
+                      }}
+                    >
+                      Add Card
+                    </button>
+                  </div>
+
+                  {/* Cards */}
+                  {(cards[list.id] || []).map((card: any) => (
+                    <div key={card.id} className="p-1 mb-1 bg-gray-100 rounded">
+                      {card.title}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
