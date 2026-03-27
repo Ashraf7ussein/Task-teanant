@@ -1,5 +1,4 @@
-// apps/api/src/board/board.controller.ts
-import { Body, Controller, Delete, Get, Param, Patch, Post, Headers } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { CardService } from './card.service';
 
 @Controller('cards')
@@ -12,7 +11,7 @@ export class CardController {
   }
 
   @Get()
-  findAll(@Body('listId') listId: string) {
+  findAll(@Query('listId') listId: string) {
     return this.cardService.findAll(listId);
   }
 
